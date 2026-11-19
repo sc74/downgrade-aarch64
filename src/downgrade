@@ -218,21 +218,28 @@ matches_name_version_filter() {
 }
 
 search_ala() {
-  local name=$1 uriname pkgfile_re index
+  local name=$1 pkgfile_re index
 
-  # This is a *very* naive URI encoding. Packages typically don't use characters
-  # that need encoding, so we'll just add them as we get bug reports. So far +
-  # seems to be the only one, which makes sense. If we ever move to a "real
-  # language", we can use a library for this bit.
-  # shellcheck disable=SC2001
-  uriname=$(sed 's/+/%2B/g' <<<"$name")
+  pkgfile_re="$name-[^-]+-[0-9.]+-(any|$DOWNGRADE_ARCH)\\.pkg\\.tar\\.(gz|xz|zst)"
+  index="$DOWNGRADE_ALA_URL/packages/${name:0:1}/$name/"
 
-  pkgfile_re="$uriname-[^-]+-[0-9.]+-(any|$DOWNGRADE_ARCH)\\.pkg\\.tar\\.(gz|xz|zst)"
-  index="$DOWNGRADE_ALA_URL/packages/${uriname:0:1}/$uriname/"
+  if ((DOWNGRADE_FROM_ALA)); then
+    # Compatible avec les miroirs qui utilisent href="./fichier"
+    curl --fail --silent "$index" | \
+      grep -oE 'href="\.?/?'"$pkgfile_re"'"' | \
+      sed -E 's|href="\.?/?(.*)"|'"$index"'\1|'
+  fi
 
-  curl --fail --silent "$index" | sed_msg "to parse A.L.A." -E '
-    /.* href="('"$pkgfile_re"')".*/!d;
-    s||'"$index"'\1|g; s|\+| |g; s|%|\\x|g' | xargs -0 printf "%b"
+  if ((DOWNGRADE_FROM_CACHE)); then
+    if ((!${#PACMAN_CACHE[@]})); then
+      mapfile -t PACMAN_CACHE < <(read_pacman_conf CacheDir)
+    fi
+    if ((!${#PACMAN_CACHE[@]})); then
+      PACMAN_CACHE=(/var/cache/pacman/pkg/)
+    fi
+    # shellcheck disable=SC2086
+    find -L "${PACMAN_CACHE[@]}" -maxdepth "$DOWNGRADE_MAXDEPTH" -regextype posix-extended -regex ".*/$pkgfile_re"
+  fi
 }
 
 search_cache() {
